@@ -58,6 +58,7 @@ import {
   renderMentionTokens,
   useComposerMirrorAlignment,
 } from "@/components/composer/MentionTokenOverlay";
+import { COMMAND_TOKEN_CLASS } from "@/components/composer/commandToken";
 import { ComposerAddMenu } from "@/components/composer/ComposerAddMenu";
 import { BackgroundTaskIndicator } from "@/components/composer/BackgroundTaskIndicator";
 import { SubagentTaskIndicator } from "@/components/composer/SubagentTaskIndicator";
@@ -4529,6 +4530,11 @@ function ComposerImpl(
         input={{
           ref: bindTailTextarea,
           value: draft.text,
+          // Same rules as the textarea mirror: quoted replies get no pills, and files stop the command tint.
+          commandToken: composerIsCommand
+            ? (splitSlashCommand(draft.text, slashCommandNames)?.token ?? null)
+            : null,
+          mentionTokens: draft.quotes.length === 0 ? mentionTokens : [],
           onChange: (e) => handleTextChange(null, e),
           onSelect: (e) => slashCompletion.onSelectionChange(e.currentTarget),
           onFocus: (e) => {
@@ -4723,7 +4729,7 @@ function ComposerImpl(
                 return (
                   <>
                     {split.before}
-                    <span className="text-brand-accent">{split.token}</span>
+                    <span className={COMMAND_TOKEN_CLASS}>{split.token}</span>
                     {renderMentionTokens(split.after, mentionTokens)}
                   </>
                 );
