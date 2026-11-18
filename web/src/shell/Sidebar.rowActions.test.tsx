@@ -65,7 +65,7 @@ const mocks = vi.hoisted(() => {
     projects: [] as string[],
     projectIcons: {} as Record<string, string | null | undefined>,
     moveToProject: { mutate: vi.fn() },
-    moveToNest: { mutate: vi.fn(), isPending: false },
+    moveToNest: vi.fn<(variables: { id: string; sourceId: string | null }) => Promise<void>>(),
     sessionSearch: vi.fn(),
     leave: { mutate: vi.fn(), isPending: false },
     // The signed-in viewer. Rows with no `owner` read as owned by them; a row
@@ -85,6 +85,7 @@ vi.mock("@/hooks/useIsMobileViewport", () => ({
 
 vi.mock("@/hooks/useConversations", async () => {
   const { conversationHooksMock } = await import("@/test/sidebarMockHelpers");
+  const { useMutation } = await import("@tanstack/react-query");
   return {
     ...conversationHooksMock(),
     usePinnedConversations: () => {
@@ -126,7 +127,11 @@ vi.mock("@/hooks/useConversations", async () => {
       isFetchingNextPage: false,
     }),
     useMoveToProject: () => mocks.moveToProject,
-    useMoveToNest: () => mocks.moveToNest,
+    useMoveToNest: () =>
+      useMutation({
+        mutationFn: (variables: { id: string; sourceId: string | null }) =>
+          mocks.moveToNest(variables),
+      }),
     useSessionSearch: (...args: unknown[]) => mocks.sessionSearch(...args),
   };
 });
@@ -299,7 +304,7 @@ beforeEach(() => {
   mocks.rename.isSuccess = false;
   mocks.rename.isError = false;
   mocks.moveToProject.mutate.mockReset();
-  mocks.moveToNest.mutate.mockReset();
+  mocks.moveToNest.mockReset().mockResolvedValue(undefined);
   mocks.sessionSearch.mockReset().mockReturnValue({
     data: undefined,
     isPending: false,
@@ -1315,7 +1320,7 @@ describe("Move session nest destinations", () => {
     expect(screen.queryByRole("menuitem", { name: "Remove from nest" })).toBeNull();
     if (mobile) fireEvent.click(move);
     else {
-      move.focus();
+      act(() => move.focus());
       fireEvent.keyDown(move, { key: "ArrowRight" });
     }
     if (placeholder) await screen.findByPlaceholderText(placeholder);
@@ -1328,6 +1333,12 @@ describe("Move session nest destinations", () => {
     { mobile: false, partial: true },
     { mobile: true, partial: true },
   ])("moves into an existing nest inside Move session: %j", async ({ mobile, partial }) => {
+    let resolveMove!: () => void;
+    mocks.moveToNest.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveMove = resolve;
+      }),
+    );
     mocks.isMobile = mobile;
     mocks.projects = ["Planning"];
     mockConversations([
@@ -1364,7 +1375,6 @@ describe("Move session nest destinations", () => {
     renderSidebar(undefined, serverInfo({ sibling_sessions: true, session_nest_moves: true }));
     fireEvent.click(screen.getAllByRole("button", { name: "Collapse session family" })[0]);
     expect(screen.queryByRole("link", { name: "Peer" })).toBeNull();
-    mocks.moveToNest.mutate.mockImplementation((_variables, options) => options.onSuccess());
     await openMove(mobile);
     expect(screen.getByRole("menuitem", { name: "Planning" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Peer" })).toBeNull();
@@ -1375,12 +1385,17 @@ describe("Move session nest destinations", () => {
       target: { value: "research" },
     });
     expect(screen.queryByRole("menuitem", { name: "Planning" })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Research" }));
-    expect(mocks.moveToNest.mutate).toHaveBeenCalledExactlyOnceWith(
-      { id: CONV.id, sourceId: partial ? "available-peer" : "nest" },
-      expect.any(Object),
+    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Research" })));
+    await waitFor(() =>
+      expect(mocks.moveToNest).toHaveBeenCalledExactlyOnceWith({
+        id: CONV.id,
+        sourceId: partial ? "available-peer" : "nest",
+      }),
     );
+    expect(screen.queryByPlaceholderText("Search destinations")).toBeNull();
     expect(mocks.moveToProject.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: "Peer" })).toBeNull();
+    await act(async () => resolveMove());
     expect(screen.getByRole("link", { name: "Peer" })).toBeInTheDocument();
   });
 
@@ -1440,9 +1455,8 @@ describe("Move session nest destinations", () => {
         );
       }
       fireEvent.click(screen.getByRole("menuitem", { name: "Remove from nest" }));
-      expect(mocks.moveToNest.mutate).toHaveBeenCalledExactlyOnceWith(
-        { id, sourceId: null },
-        expect.any(Object),
+      await waitFor(() =>
+        expect(mocks.moveToNest).toHaveBeenCalledExactlyOnceWith({ id, sourceId: null }),
       );
     },
   );
@@ -1498,15 +1512,18 @@ describe("Move session nest destinations", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Show more" }));
     expect(fetchNextPage).toHaveBeenCalledExactlyOnceWith();
     expect(screen.getByPlaceholderText("Search destinations")).toBeInTheDocument();
-    mocks.moveToNest.mutate.mockImplementation((_variables, options) => options.onSuccess());
     fireEvent.click(await screen.findByRole("menuitem", { name: "Research archive" }));
-    expect(mocks.moveToNest.mutate).toHaveBeenCalledExactlyOnceWith(
-      { id: CONV.id, sourceId: "second-page-nest" },
-      expect.any(Object),
+    await waitFor(() =>
+      expect(mocks.moveToNest).toHaveBeenCalledExactlyOnceWith({
+        id: CONV.id,
+        sourceId: "second-page-nest",
+      }),
     );
-    expect(screen.getByRole("button", { name: /^Planning/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Planning/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      ),
     );
   });
 
