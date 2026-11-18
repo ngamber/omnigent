@@ -816,10 +816,23 @@ export function useSessionSearch(
     enabled = true,
     limit = 10,
     includeArchived = true,
-  }: { enabled?: boolean; limit?: number; includeArchived?: boolean } = {},
+    visibility,
+  }: {
+    enabled?: boolean;
+    limit?: number;
+    includeArchived?: boolean;
+    visibility?: "mine";
+  } = {},
 ) {
   const queryClient = useQueryClient();
-  const queryKey = ["session-search", searchQuery, searchScope, limit, includeArchived];
+  const queryKey = [
+    "session-search",
+    searchQuery,
+    searchScope,
+    limit,
+    includeArchived,
+    ...(visibility ? [visibility] : []),
+  ];
   const query = useInfiniteQuery({
     queryKey,
     queryFn: ({ pageParam }) =>
@@ -828,6 +841,7 @@ export function useSessionSearch(
         searchQuery,
         searchScope,
         includeArchived,
+        visibility,
         queryClient,
         limit,
       }),
