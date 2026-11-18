@@ -1,7 +1,7 @@
 import { redo, undo } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";
-import { act, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { insertComposerText } from "@/lib/composerText";
 import { CodeMirrorComposerInput } from "./testing/codeMirrorComposer";
 import { COMPOSER_EDITING_KEYMAP } from "./CodeMirrorComposerInput";
@@ -116,6 +116,44 @@ describe("CodeMirrorComposerInput", () => {
     expect(content.getAttribute("aria-disabled")).toBe("true");
     rerender(<CodeMirrorComposerInput value="" readOnly />);
     expect(content.getAttribute("aria-readonly")).toBe("true");
+  });
+
+  it("locks while an ancestor fieldset is disabled, as a textarea does", async () => {
+    // CodeMirror measures its text through Range.getClientRects, which jsdom lacks.
+    Object.defineProperty(Range.prototype, "getClientRects", {
+      configurable: true,
+      value: () => [],
+    });
+    onTestFinished(() => {
+      Reflect.deleteProperty(Range.prototype, "getClientRects");
+    });
+    const box: { target: ComposerTextTarget | null } = { target: null };
+    const input = (fieldsetDisabled: boolean) => (
+      <fieldset disabled={fieldsetDisabled}>
+        <CodeMirrorComposerInput
+          aria-label="Message the agent"
+          value="draft"
+          ref={(target) => {
+            box.target = target;
+          }}
+        />
+      </fieldset>
+    );
+    const { container, rerender } = render(input(true));
+    const content = container.querySelector<HTMLElement>(".cm-content")!;
+    expect(content.getAttribute("aria-disabled")).toBe("true");
+    expect(insertComposerText(box.target!, "x", 0, 0)).toBe(false);
+    expect(box.target!.value).toBe("draft");
+
+    rerender(input(false));
+    await waitFor(() => expect(content.getAttribute("aria-disabled")).toBe("false"));
+    expect(insertComposerText(box.target!, "x", 0, 0)).toBe(true);
+    expect(box.target!.value).toBe("xdraft");
+
+    rerender(input(true));
+    await waitFor(() => expect(content.getAttribute("aria-disabled")).toBe("true"));
+    expect(insertComposerText(box.target!, "y", 0, 0)).toBe(false);
+    expect(box.target!.value).toBe("xdraft");
   });
 
   it("refuses an insert into a read-only draft and leaves it unchanged", () => {
